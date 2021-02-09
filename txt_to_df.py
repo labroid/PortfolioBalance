@@ -5,9 +5,6 @@ import csv
 from pydantic import BaseModel, validator
 from datetime import datetime
 
-SCHWAB_FILE = r"C:\Users\Scott\Desktop\All-Accounts-Positions-2021-01-29-111408.CSV"
-FIDELITY_FILE = r"C:\Users\Scott\Desktop\Portfolio_Position_Jan-26-2021.csv"
-
 
 class Record(BaseModel):
     date: datetime = None
@@ -19,10 +16,10 @@ class Record(BaseModel):
     value: float
     basis: float
 
-    @validator(
-        "symbol", "quantity", "price", "value", "basis", pre=True, allow_reuse=True
-    )
+    @validator("symbol", "quantity", "price", "value", "basis", pre=True, allow_reuse=True)
     def prep_dollars(cls, d):
+        if isinstance(d, int) or isinstance(d, float):
+            return d
         if d in ["--", "Incomplete", "n/a"]:
             return 0
         return d.replace("$", "").replace(",", "")
@@ -87,10 +84,35 @@ def raw_fidelity_to_df(fidelity_file):
     return pd.DataFrame.from_dict(answer)
 
 
+def raw_assets_to_df(assets_file):
+    with open(assets_file) as f:
+        raw = csv.reader(f)
+        _ = next(raw)  # Toss header row
+        answer = []
+        for r in raw:
+            if len(r) == 0:
+                break
+            answer.append(
+                Record(
+                    date=arrow.get(r[4], 'MM/DD/YY').datetime,
+                    broker=r[0],
+                    account=r[2],
+                    symbol=r[1],
+                    quantity=r[3],
+                    price=1,
+                    value=r[3],
+                    basis=r[3],
+                ).dict()
+            )
+        return pd.DataFrame.from_dict(answer)
+
+
 if __name__ == "__main__":
     SCHWAB = r"C:\Users\Scott\Documents\Brokerage\All-Accounts-Positions-2021-02-01-080525.CSV"
     # FIDELITY = r"C:\Users\Scott\Documents\Brokerage\Portfolio_Position_Feb-01-2021.csv"
     FIDELITY = r"C:\Users\Scott\Documents\Brokerage\Portfolio_Position_Jan-26-2021.csv"
+    ASSETS = r"C:\Users\Scott\Documents\Brokerage\Assets.csv"
 
     raw_fidelity_to_df(FIDELITY)
     raw_schwab_to_df(SCHWAB)
+    raw_assets_to_df(ASSETS)
