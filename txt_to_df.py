@@ -30,12 +30,12 @@ def raw_schwab_to_df(schwab_file):
     with open(schwab_file) as f:
         raw = csv.reader(f)
         timestamp = arrow.get(next(raw)[0], "hh:mm A[ ET, ]MM/DD/YYYY").datetime
-        regex = re.compile(r".*(XXXX-....).*")
+        regex = re.compile(r".*XXXX-(....).*")
         for r in raw:
             if len(r) == 0:
                 continue
             if match := regex.search(r[0]):
-                account = match.group(1)
+                account = f"x{match.group(1)}"
                 continue
             if r[0] in [
                 "Symbol",
@@ -73,7 +73,7 @@ def raw_fidelity_to_df(fidelity_file):
             Record(
                 date=timestamp,
                 broker="Fidelity",
-                account=r[0],
+                account=f"x{r[0][-4:]}",
                 symbol=r[1].replace("*", ""),
                 quantity=r[3],
                 price=r[4],
