@@ -19,11 +19,13 @@ class Record(BaseModel):
     value: float
     basis: float
 
-    @validator('symbol', 'quantity', 'price', 'value', 'basis', pre=True)
+    @validator(
+        "symbol", "quantity", "price", "value", "basis", pre=True, allow_reuse=True
+    )
     def prep_dollars(cls, d):
         if d in ["--", "Incomplete", "n/a"]:
             return 0
-        return d.replace('$', '').replace(',', '')
+        return d.replace("$", "").replace(",", "")
 
 
 def raw_schwab_to_df(schwab_file):
@@ -43,24 +45,27 @@ def raw_schwab_to_df(schwab_file):
                 "Account Total",
             ]:
                 continue
+            if r[0] == "No Number":
+                r[0] = "Golub"
             records.append(
-                Record(date=timestamp,
-                       broker="Schwab",
-                       account=account,
-                       symbol=r[0],
-                       quantity=r[2],
-                       price=r[3],
-                       value=r[6],
-                       basis=r[9],
-                       )
+                Record(
+                    date=timestamp,
+                    broker="Schwab",
+                    account=account,
+                    symbol=r[0],
+                    quantity=r[2],
+                    price=r[3],
+                    value=r[6],
+                    basis=r[9],
+                ).dict()
             )
-        return records
+        return pd.DataFrame.from_dict(records)
 
 
 def raw_fidelity_to_df(fidelity_file):
     with open(fidelity_file) as f:
         records = [r for r in csv.reader(f)]
-    timestamp = arrow.get(records[-1][0], "MM/DD/YYYY hh:mm A").datetime
+    timestamp = arrow.get(records[-1][0], "MM/DD/YYYY h:mm A").datetime
     answer = []
     for r in records:
         if len(r) == 0:
@@ -79,4 +84,13 @@ def raw_fidelity_to_df(fidelity_file):
                 basis=r[12],
             ).dict()
         )
-    return answer
+    return pd.DataFrame.from_dict(answer)
+
+
+if __name__ == "__main__":
+    SCHWAB = r"C:\Users\Scott\Documents\Brokerage\All-Accounts-Positions-2021-02-01-080525.CSV"
+    # FIDELITY = r"C:\Users\Scott\Documents\Brokerage\Portfolio_Position_Feb-01-2021.csv"
+    FIDELITY = r"C:\Users\Scott\Documents\Brokerage\Portfolio_Position_Jan-26-2021.csv"
+
+    raw_fidelity_to_df(FIDELITY)
+    raw_schwab_to_df(SCHWAB)
