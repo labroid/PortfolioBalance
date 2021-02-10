@@ -1,49 +1,66 @@
-import streamlit as st
+"""
+TODO:
+Get reasonable 'report' display
+Migrate to database
+Build scrapers
+"""
+
+import numpy as np
 import pandas as pd
-import altair as alt
+import streamlit as st
+
 import urllib
-from txt_to_df import raw_schwab_to_df, raw_fidelity_to_df
+from load_portfolio import load_portfolio
+
+equity_to_bond_target = 0.6
+domestic_to_international_target = 0.6
+real_estate_target = 0.3
+cash_target = 0.25
+
+portfolio, diversity = load_portfolio()
+p = portfolio[~portfolio.charity]
+
+dist = p.groupby(['kind', 'region'], as_index=False).value.sum()
+values = dist.set_index(['kind', 'region']).value.unstack(level=0)
+if 'International' not in values.index:
+    values = values.append(pd.Series(np.nan, name='International'))
+target_alloc = diversity.allocation.unstack(level=0)
+
+total_net_worth = portfolio.value.sum()
+net_worth = p.value.sum()
+
+st.title("Investments Summary")
+st.write(f"Net worth: ${total_net_worth:,.2f}")
+st.write(f"Net worth less charity: ${net_worth:,.2f}")
+'''
+## Diversity
+Percentages
+'''
+fraction = values / net_worth
+f = fraction.style.format("{:.0%}")
+f
+'''
+Amounts'''
+v = values.style.format("${:,.0f}")
+v
+
+'''
+# Rebalance needs
+
+Targets
+'''
+dist
+
+d = dist.set_index(['kind', 'region'])
+d
 
 
-@st.cache
-def get_UN_data():
-    AWS_BUCKET_URL = "https://streamlit-demo-data.s3-us-west-2.amazonaws.com"
-    df = pd.read_csv(AWS_BUCKET_URL + "/agri.csv.gz")
-    return df.set_index("Region")
 
 
-try:
-    df = get_UN_data()
-    countries = st.multiselect(
-        "Choose countries", list(df.index), ["China", "United States of America"]
-    )
-    if not countries:
-        st.error("Please select at least one country.")
-    else:
-        data = df.loc[countries]
-        data /= 1000000.0
-        st.write("### Gross Agricultural Production ($B)", data.sort_index())
-
-        data = data.T.reset_index()
-        data = pd.melt(data, id_vars=["index"]).rename(
-            columns={"index": "year", "value": "Gross Agricultural Product ($B)"}
-        )
-        chart = (
-            alt.Chart(data)
-            .mark_area(opacity=0.6)
-            .encode(
-                x="year:T",
-                y=alt.Y("Gross Agricultural Product ($B):Q", stack=None),
-                color="Region:N",
-            )
-        )
-        st.altair_chart(chart, use_container_width=True)
-except urllib.error.URLError as e:
-    st.error(
-        """
-        **This demo requires internet access.**
-
-        Connection error: %s
-    """
-        % e.reason
-    )
+# number = 5
+# st.write(f"Here is a number: {number}")
+# newnumber = st.number_input("Updated value")
+#
+# st.write(f"New number = {newnumber}, old number = {number}")
+# number = newnumber
+# st.write(f"Now number is {number}")
