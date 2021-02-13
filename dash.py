@@ -1,7 +1,7 @@
 """
 TODO:
-Get reasonable 'report' display
 Migrate to database
+Quotes from web
 Build scrapers
 """
 
@@ -12,55 +12,42 @@ import streamlit as st
 import urllib
 from load_portfolio import load_portfolio
 
-equity_to_bond_target = 0.6
-domestic_to_international_target = 0.6
-real_estate_target = 0.3
-cash_target = 0.25
-
 portfolio, diversity = load_portfolio()
 p = portfolio[~portfolio.charity]
 
-dist = p.groupby(['kind', 'region'], as_index=False).value.sum()
-values = dist.set_index(['kind', 'region']).value.unstack(level=0)
-if 'International' not in values.index:
-    values = values.append(pd.Series(np.nan, name='International'))
-target_alloc = diversity.allocation.unstack(level=0)
+dist = p.groupby(['kind', 'region'], as_index=False).value.sum().fillna(0)
+values = dist.set_index(['kind', 'region']).value.unstack(level=0).fillna(0).transpose()
+target_alloc = diversity.allocation.unstack(level=0).transpose()
 
-total_net_worth = portfolio.value.sum()
 net_worth = p.value.sum()
 
 st.title("Investments Summary")
-st.write(f"Net worth: ${total_net_worth:,.2f}")
-st.write(f"Net worth less charity: ${net_worth:,.2f}")
-'''
-## Diversity
-Percentages
-'''
-fraction = values / net_worth
-f = fraction.style.format("{:.0%}")
-f
-'''
-Amounts'''
-v = values.style.format("${:,.0f}")
-v
+st.write(f"### Net worth: ${portfolio.value.sum():,.2f}")
+st.write(f"### Net worth less charity: ${net_worth:,.2f}")
 
-'''
-# Rebalance needs
+missing = portfolio.kind.isna() | portfolio.region.isna()
+if missing.any():
+    st.write("**Warning** Some symbols have incomplete classification. Update classification table.")
+    st.write(portfolio.loc[missing, ['broker', 'symbol']])
 
-Targets
-'''
-dist
+st.write('## Distribution')
+v = values.applymap(lambda x: f"${x:,.0f}")
+f = (values / net_worth).fillna(0).applymap(lambda x: f"{100 * x:,.0f}")
+a = target_alloc.applymap(lambda x: f"{100 * x:,.0f}")
+target_value = target_alloc * net_worth
+t = target_value.applymap(lambda x: f"${x:,.0f}")
+move_needed = target_alloc * net_worth - values
+m = move_needed.applymap(lambda x: f"${x:,.0f}")
 
-d = dist.set_index(['kind', 'region'])
-d
+display = pd.concat([v.Domestic, f.Domestic, a.Domestic, v.International, f.International, a.International], axis=1)
+display.columns = ['Domestic', 'Amt %', 'Goal %', 'Int', 'Amt %', 'Goal %']
+display[display == "$0"] = "-"
+display
+
+st.write("## Necessary moves")
+display_moves = pd.concat([v.Domestic, t.Domestic, m.Domestic, v.International, t.International, m.International], axis=1)
+display_moves.columns = ['Domestic', 'Target', 'Diff', "Int'l", 'Target', 'Diff']
+display_moves[display_moves == "$0"] = "-"
+display_moves
 
 
-
-
-# number = 5
-# st.write(f"Here is a number: {number}")
-# newnumber = st.number_input("Updated value")
-#
-# st.write(f"New number = {newnumber}, old number = {number}")
-# number = newnumber
-# st.write(f"Now number is {number}")
