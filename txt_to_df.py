@@ -7,7 +7,7 @@ from datetime import datetime
 
 
 class Record(BaseModel):
-    date: datetime = None
+    time: datetime = None
     broker: str
     account: str
     symbol: str
@@ -25,6 +25,12 @@ class Record(BaseModel):
         return d.replace("$", "").replace(",", "")
 
 
+def convert_to_datetime_index(records):
+    df = pd.DataFrame.from_dict(records)
+    df = df.set_index(pd.DatetimeIndex(df.time)).drop('time', axis='columns')
+    return df
+
+
 def raw_schwab_to_df(schwab_file):
     records = []
     with open(schwab_file) as f:
@@ -40,13 +46,18 @@ def raw_schwab_to_df(schwab_file):
             if r[0] in [
                 "Symbol",
                 "Account Total",
+                ""
             ]:
                 continue
-            if r[0] == "No Number":
-                r[0] = "Golub"
+            symbol_translate = {"No Number": "Golub", "Cash & Cash Investments": "Cash"}
+            if r[0] in symbol_translate:
+                r[0] = symbol_translate[r[0]]
+            if r[0] == "Cash":
+                r[3] = 1.0
+                r[2] = r[6]
             records.append(
                 Record(
-                    date=timestamp,
+                    time=timestamp,
                     broker="Schwab",
                     account=account,
                     symbol=r[0],
@@ -56,7 +67,7 @@ def raw_schwab_to_df(schwab_file):
                     basis=r[9],
                 ).dict()
             )
-        return pd.DataFrame.from_dict(records)
+        return convert_to_datetime_index(records)
 
 
 def raw_fidelity_to_df(fidelity_file):
@@ -71,7 +82,7 @@ def raw_fidelity_to_df(fidelity_file):
             continue
         answer.append(
             Record(
-                date=timestamp,
+                time=timestamp,
                 broker="Fidelity",
                 account=f"x{r[0][-4:]}",
                 symbol=r[1].replace("*", ""),
@@ -81,7 +92,7 @@ def raw_fidelity_to_df(fidelity_file):
                 basis=r[12],
             ).dict()
         )
-    return pd.DataFrame.from_dict(answer)
+    return convert_to_datetime_index(answer)
 
 
 def raw_assets_to_df(assets_file):
@@ -94,7 +105,7 @@ def raw_assets_to_df(assets_file):
                 break
             answer.append(
                 Record(
-                    date=arrow.get(r[4], 'MM/DD/YY').datetime,
+                    time=arrow.get(r[4], 'MM/DD/YY').datetime,
                     broker=r[0],
                     account=r[2],
                     symbol=r[1],
@@ -104,7 +115,7 @@ def raw_assets_to_df(assets_file):
                     basis=r[3],
                 ).dict()
             )
-        return pd.DataFrame.from_dict(answer)
+        return convert_to_datetime_index(answer)
 
 
 if __name__ == "__main__":
