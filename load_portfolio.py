@@ -3,8 +3,9 @@ import pandas as pd
 from pathlib import Path
 import pickle
 import alpaca_trade_api as tradeapi
-import datetime
+import arrow
 import numpy as np
+import sys
 
 START_DATE = pd.to_datetime('2021-02-05')
 CLASSIFICATIONS = r"C:\Users\Scott\Documents\Brokerage\Classifications.ods"
@@ -23,13 +24,8 @@ TARGET_GLOB_FUNCTION = {
 
 idx = pd.IndexSlice
 
-# def get_history():
-#     if Path(HISTORY).exists():
-#         history = pd.read_pickle(HISTORY)
-#         return history
 
-
-def update_history(types):  # TODO: This should also look for file changes
+def update_history_old(types):  # TODO: This should also look for file changes
     if not Path(FILES_PROCESSED).exists():
         with Path(FILES_PROCESSED).open("wb") as fp:
             pickle.dump([], fp)
@@ -52,19 +48,36 @@ def update_history(types):  # TODO: This should also look for file changes
     history.to_pickle(HISTORY)
     with Path(FILES_PROCESSED).open("wb") as fp:
         pickle.dump(files_processed, fp)
-    return history  # TODO: If symbol goes to nan after being purchased, it must be set to zero
+    return history
+
+
+def update_history():  # TODO: This just reads 'em all in fresh every time
+    dfs = []
+    for g in TARGET_GLOB_FUNCTION:
+        for f in Path(TXT_FILE_DIR).glob(g):
+            dfs.append(TARGET_GLOB_FUNCTION[g](f))
+    history = pd.concat(dfs)
+    history.replace(r'BRK/B', 'BRK.B', inplace=True)
+    assert ~history.reset_index().duplicated().any(), "Duplicates line in history! Panic!"
+    return history
 
 
 def update_quotes(history):
     # TODO: Pickle quotes and only update when requested. Only pick up missing dates.
-    quotes = history.loc[:, ['symbol', 'price']].copy()
+    quotes = history.loc[:, ['symbol', 'price']].drop_duplicates().copy()
     not_dollar_symbols = list(quotes.symbol[quotes.price != 1.0].unique())
     api = tradeapi.REST(
-        'AKN66Y14SWULD1APGK5U', 'T56WK4tNz6lkmaNdMH3hViIIYOV4nJZs72S5IXbO',
-        base_url='https://data.alpaca.markets/v1'
+        'AK82XKYMNMGNFTT24V6J', 'tUcBbHdtVb5aT4nY0HuBVw1szpnfgaF4M7Vi4GS3', base_url='https://data.alpaca.markets/v1'
     )  # TODO: Change this to use env variables
     days = (pd.datetime.now() - START_DATE).days
-    bars = api.get_barset(not_dollar_symbols, "day", days)
+    # try:
+    #     bars = api.get_barset(not_dollar_symbols, "day", days)
+    # except tradeapi.rest.APIError:
+    # print("Alpaca not responding. Using brokerage quotes.")
+    quotes = (
+        quotes.set_index(['symbol'], append=True).unstack(1).ffill().resample('D').ffill().droplevel(0, axis='columns')
+    )
+    return quotes
     close = bars.df.loc[:, idx[:, 'close']].copy()
     close.columns = close.columns.droplevel(1).copy()
     close.dropna(axis='columns', how='all', inplace=True)
@@ -81,31 +94,18 @@ def update_quotes(history):
     return quotes
 
 
-def get_holdings(history):
-    h = (
-        history.loc[:, ['broker', 'account', 'symbol', 'quantity']]
-        .set_index(['broker', 'account', 'symbol'], append=True)
-        .unstack([1, 2, 3])
-        .reorder_levels([1, 2, 3, 0], axis=1)
+def get_portfolio(history):
+    portfolio = (
+        history.drop(columns=['basis'])
+        .pivot(columns=['broker', 'account', 'symbol'])
+        .reorder_levels([1, 2, 3, 0], axis='columns')
     )
+    start_date = arrow.get('2021/02/05').datetime
     broker_frames = []
     for broker in history.broker.unique():
-        broker_frames.append(
-            h.loc[:, idx[broker, :, :, :]]
-            .dropna(how='all')  # Drop account/symbols not with this broker
-            .fillna(0)  # nan here means the symbol has been sold to zero, so zero out the nan
-            .resample('D')  # create daily summary
-            .last()  # keep latest holdings if more than one update in a day
-            .ffill()  # fill in days missing holdings updates
-        )
-    holdings = (broker_frames[0]
-                .join(broker_frames[1:], how='outer')
-                .ffill()
-                .resample('D')
-                .ffill()
-                .fillna(0)
-                )
-    return holdings
+        broker_frames.append(portfolio.loc[:, idx[broker, :, :, :]].dropna(how='all').fillna(0))
+    portfolio = pd.DataFrame().join(broker_frames, how='outer').resample('D').last().ffill()
+    return portfolio[portfolio.index >= start_date].copy()
 
 
 def load_data():
@@ -114,18 +114,16 @@ def load_data():
     Currently reads from text files; will migrate to a database read
     """
 
-    types = pd.read_excel(TYPES)
-    classes = pd.read_excel(CLASSIFICATIONS)
+    types = pd.read_excel(TYPES, index_col=0)
+    assert ~any(types.duplicated()), "Error: Duplicate row in Types"
+    classes = pd.read_excel(CLASSIFICATIONS, index_col=0, dtype=np.str)
+    assert ~any(classes.duplicated()), "Error: Duplicate row in Classifications"
     diversity = pd.read_excel(DIVERSITY, usecols='A:C', header=0, skiprows=9, nrows=8).set_index(['kind', 'region'])
-    history = update_history(types)
-    holdings = get_holdings(history)
-    quotes = update_quotes(history)
-
-    # history = history.loc[~history.account.isin(list(types.account[types.ignore])), :].copy()
-    position = history.merge(classes, how="left", on="symbol")
-    position = position.merge(types, how="left", on="account")
-
-    return position, diversity
+    # TODO: also check that all accounts and types have been covered
+    history = update_history()
+    history = history[history.account.isin(types.index[types.include])]
+    portfolio = get_portfolio(history)
+    return portfolio, diversity, types, classes, history
 
 
 if __name__ == '__main__':
