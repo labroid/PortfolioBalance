@@ -8,7 +8,6 @@ Build scrapers
 import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib
 import altair as alt
 
 import urllib
@@ -39,8 +38,8 @@ st.title("Investments Summary")
 st.write(f"### Net worth: ${total_worth_timeline.iloc[-1]:,.2f}")
 st.write(f"### Net worth net charity: ${net_worth:,.2f}")
 st.write(
-    f"Latest Schwab update: {history.loc[history.broker == 'Schwab'].tail(1).index.strftime('%d %B %Y').values[0]}  \n"
-    f"Latest Fidelity update: {history.loc[history.broker == 'Fidelity'].tail(1).index.strftime('%d %B %Y').values[0]}"
+    f"Latest Schwab update: {history.loc[history.broker == 'Schwab'].index.max().strftime('%d %B %Y')}  \n"
+    f"Latest Fidelity update: {history.loc[history.broker == 'Fidelity'].index.max().strftime('%d %B %Y')}"
 )
 
 st.write('## Distribution')
@@ -58,13 +57,13 @@ display[display == "$0"] = "-"
 display[display == '0%'] = "-"
 display
 
-st.write("## Necessary moves")
-display_moves = pd.concat(
-    [v.Domestic, t.Domestic, m.Domestic, v.International, t.International, m.International], axis=1
-)
-display_moves.columns = ['Domestic', 'Target', 'Diff', "Int'l", 'Target', 'Diff']
-display_moves[display_moves == "$0"] = "-"
-display_moves
+st.write("## Positions & necessary moves")
+# display_moves = pd.concat(
+#     [v.Domestic, t.Domestic, m.Domestic, v.International, t.International, m.International], axis=1
+# )
+# display_moves.columns = ['Domestic', 'Target', 'Diff', "Int'l", 'Target', 'Diff']
+# display_moves[display_moves == "$0"] = "-"
+# display_moves
 
 p = (
     net_values.tail(1)
@@ -94,17 +93,21 @@ target_row = pd.Series(
     name="Target",
 )
 
-p_summary = (p
-             .stack(['region', 'kind'])
-             .rename('Total')
-             .groupby(['region', 'kind'])
-             .sum()
-             .to_frame()
-             .join(target_row.to_frame())
-             )
-p_summary = p.transpose().join(p_summary)
+total = p.sum().rename("Total").to_frame()
+target = pd.Series(
+    target_alloc.unstack().drop(index=[('International', 'Real Estate'), ('International', 'Cash')]) * net_worth,
+    name="Target",
+)
+
+summary_index = p.index.to_frame().apply(lambda x: f"{x.deferred:>13} {x.broker:>10} {x.account:>12}", axis=1)
+p_summary = p.set_index(summary_index)
+p_summary = p_summary.transpose().join(total).join(target)
 p_summary['Move'] = p_summary.Target - p_summary.Total
-p_display = (p_summary.transpose() / 1000).round(0).applymap(lambda x: f"{x:,.0f}").applymap(lambda x: '' if x == '0' else x)
+unqual_total = p.loc[idx['Unqualified', :, :], :].sum().rename("Unqualified Totals").to_frame()
+p_summary = p_summary.join(unqual_total)
+p_summary = p_summary.transpose()
+p_summary['Total'] = p_summary.sum(axis=1)
+p_display = (p_summary / 1000).round(0).applymap(lambda x: f"{x:,.0f}").applymap(lambda x: '' if x == '0' else x)
 p_display
 
 
@@ -115,9 +118,11 @@ st.altair_chart(
         alt.X('time'),
         alt.Y(
             'Net Worth:Q',
-            scale=alt.Scale(zero=False),
+            # scale=alt.Scale(zero=False),
+            scale=alt.Scale(domain=(6_500_000, 7_100_000))
         ),
-    )
+    ),
+    use_container_width=True,
 )
 
 alloc_v_time = (
@@ -162,12 +167,10 @@ target_bars = (
 
 target_bars['target'] = target_bars.loc[:, 'allocation'][::-1].cumsum()
 
-
 st.altair_chart(
     alt.Chart(alloc_v_time).mark_line().encode(alt.X('time:T'), alt.Y('value:Q'), alt.Color('bucket:N')),
     use_container_width=True,
 )
-
 
 area_chart = (
     alt.Chart(alloc_v_time)
