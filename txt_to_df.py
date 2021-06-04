@@ -2,7 +2,7 @@ import pandas as pd
 import arrow
 import re
 import csv
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, validator, ValidationError
 from datetime import datetime
 
 
@@ -18,7 +18,7 @@ class Record(BaseModel):
 
     @validator("symbol", "quantity", "price", "value", "basis", pre=True, allow_reuse=True)
     def prep_dollars(cls, d):
-        if isinstance(d, int) or isinstance(d, float):
+        if isinstance(d, (int, float)):
             return d
         if d in ["--", "Incomplete", "n/a"]:
             return 0
@@ -55,18 +55,22 @@ def raw_schwab_to_df(schwab_file):
             if r[0] == "Cash":
                 r[3] = 1.0
                 r[2] = r[6]
-            records.append(
-                Record(
-                    time=timestamp,
-                    broker="Schwab",
-                    account=account,
-                    symbol=r[0],
-                    quantity=r[2],
-                    price=r[3],
-                    value=r[6],
-                    basis=r[9],
-                ).dict()
-            )
+            try:
+                records.append(
+                    Record(
+                        time=timestamp,
+                        broker="Schwab",
+                        account=account,
+                        symbol=r[0],
+                        quantity=r[2],
+                        price=r[3],
+                        value=r[6],
+                        basis=r[9],
+                    ).dict()
+                )
+            except ValidationError as e:
+                print(e)
+                print(f"Input: {r}")
         return convert_to_datetime_index(records)
 
 
