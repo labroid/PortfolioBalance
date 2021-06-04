@@ -101,10 +101,10 @@ def get_portfolio(history):
         .reorder_levels([1, 2, 3, 0], axis='columns')
     )
     start_date = arrow.get('2021/02/05').datetime
-    broker_frames = []
-    for broker in history.broker.unique():
-        broker_frames.append(portfolio.loc[:, idx[broker, :, :, :]].dropna(how='all').fillna(0))
-    portfolio = pd.DataFrame().join(broker_frames, how='outer').resample('D').last().ffill()
+    account_frames = []
+    for account in history.account.unique():  # TODO: This should be done on unique broker/acct pairs
+        account_frames.append(portfolio.loc[:, idx[:, account, :, :]].dropna(how='all').fillna(0))
+    portfolio = pd.DataFrame().join(account_frames, how='outer').resample('D').last().ffill()
     return portfolio[portfolio.index >= start_date].copy()
 
 
